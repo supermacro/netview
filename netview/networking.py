@@ -1,3 +1,4 @@
+import gzip
 import logging
 import socket
 import ssl
@@ -21,13 +22,8 @@ PERSISTED_SOCKETS = {}
 CONTENT_CACHE = {}
 
 
-def crlf(s="", *, as_bytes: bool = False):
-    val = s + "\r\n"
-
-    if as_bytes:
-        return val.encode()
-
-    return val
+def crlf(s="") -> str:
+    return s + "\r\n"
 
 
 class URL:
@@ -101,18 +97,9 @@ class URL:
 
         s = get_socket(self)
 
-        request = crlf(f"GET {self.path} HTTP/1.1")
-        request += crlf(f"Host: {self.host}")
-        request += crlf("Connection: keep-alive")
-        request += crlf(f"User-Agent: {UA}")
-        request += crlf()
+        s.send(self._set_request_headers().encode("utf8"))
 
-        s.send(request.encode("utf8"))
-
-        # TODO:
-        #   - read Content-Type header to determine the encoding rather
-        #     than hardcoding / assuming the encoding is utf8
-        response = s.makefile("rb", encoding="utf8", newline=crlf())
+        response = s.makefile("rb")
 
         statusline = response.readline().decode()
 
@@ -149,14 +136,30 @@ class URL:
 
             return URL(location).request(redirect_counter=redirect_counter)
 
-        assert "content-length" in response_headers
+        if "content-encoding" in response_headers:
+            transfer_encoding = response_headers.get("transfer-encoding")
 
-        assert "transfer-encoding" not in response_headers
-        assert "content-encoding" not in response_headers
+            if transfer_encoding == "chunked":
+                chunk_size_hex = response.readline().decode().strip()
+                chunk_len_bytes = int(chunk_size_hex, 16)
+                chunks = []
 
-        len_bytes = int(response_headers["content-length"])
+                while chunk_len_bytes > 0:
+                    chunks.append(response.read(chunk_len_bytes))
+                    response.readline()  # consume trailing b"\r\n"
 
-        content = response.read(len_bytes).decode()
+                    chunk_size_hex = response.readline().decode().strip()
+                    chunk_len_bytes = int(chunk_size_hex, 16)
+
+                compressed_body = b"".join(chunks)
+                content = gzip.decompress(compressed_body).decode()
+            else:
+                len_bytes = int(response_headers["content-length"])
+                compressed_body = response.read(len_bytes)
+                content = gzip.decompress(compressed_body).decode()
+        else:
+            len_bytes = int(response_headers["content-length"])
+            content = response.read(len_bytes).decode()
 
         cache_control = response_headers.get("cache-control")
 
@@ -200,6 +203,16 @@ class URL:
         port = f":{self.port}" if self.port != 80 else ""
 
         return f"{self.scheme}://{self.host}{port}"
+
+    def _set_request_headers(self) -> str:
+        headers = crlf(f"GET {self.path} HTTP/1.1")
+        headers += crlf(f"Host: {self.host}")
+        headers += crlf("Connection: keep-alive")
+        headers += crlf(f"User-Agent: {UA}")
+        headers += crlf("Accept-Encoding: gzip")
+        headers += crlf()
+
+        return headers
 
     def _read_file(self):
         if not self.path:

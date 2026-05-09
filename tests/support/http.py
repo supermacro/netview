@@ -20,6 +20,7 @@ class HTTPResponse:
     headers: dict[str, str] = field(default_factory=empty_headers)
     status: int = 200
     reason: str = "OK"
+    chunks: Sequence[bytes] | None = None
 
 
 @dataclass(frozen=True)
@@ -182,16 +183,31 @@ class HTTPTestServer:
         return script[index]
 
     def _serialize_response(self, response: HTTPResponse) -> bytes:
+        has_transfer_encoding = any(
+            name.casefold() == "transfer-encoding" for name in response.headers
+        )
         header_lines = [
             f"HTTP/1.1 {response.status} {response.reason}".encode("ascii"),
-            f"Content-Length: {len(response.body)}".encode("ascii"),
             b"Connection: keep-alive",
         ]
+
+        if not has_transfer_encoding:
+            header_lines.append(f"Content-Length: {len(response.body)}".encode("ascii"))
 
         for name, value in response.headers.items():
             header_lines.append(f"{name}: {value}".encode("ascii"))
 
-        return b"\r\n".join(header_lines) + b"\r\n\r\n" + response.body
+        if response.chunks is None:
+            body = response.body
+        else:
+            chunk_lines: list[bytes] = []
+            for chunk in response.chunks:
+                chunk_lines.append(f"{len(chunk):x}".encode("ascii"))
+                chunk_lines.append(chunk)
+            chunk_lines.extend([b"0", b"", b""])
+            body = b"\r\n".join(chunk_lines)
+
+        return b"\r\n".join(header_lines) + b"\r\n\r\n" + body
 
 
 def request_with_timeout(url: str, timeout: float = 1.0) -> tuple[str, bool]:

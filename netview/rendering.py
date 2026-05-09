@@ -5,6 +5,8 @@ NAMED_CHARACTER_REFERENCES_MAPPING = {
     "gt": ">",
     "amp": "&",
     "quot": '"',
+    "copy": "©",
+    "ndash": "–",
 }
 
 

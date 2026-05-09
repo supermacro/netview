@@ -16,11 +16,16 @@ def close_persisted_sockets() -> Iterator[None]:
         dict[str, socket.socket],
         networking.PERSISTED_SOCKETS,  # type: ignore[reportUnknownMemberType]
     )
+    content_cache = cast(
+        dict[str, object],
+        networking.CONTENT_CACHE,  # type: ignore[reportUnknownMemberType]
+    )
 
     for persisted_socket in persisted_sockets.values():
         with suppress(OSError):
             persisted_socket.close()
     persisted_sockets.clear()
+    content_cache.clear()
 
     yield
 
@@ -28,3 +33,4 @@ def close_persisted_sockets() -> Iterator[None]:
         with suppress(OSError):
             persisted_socket.close()
     persisted_sockets.clear()
+    content_cache.clear()
