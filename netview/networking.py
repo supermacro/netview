@@ -6,8 +6,16 @@ from urllib.parse import unquote
 UA = "NetView/0.1"
 
 
-def crlf(s=""):
-    return s + "\r\n"
+PERSISTED_SOCKETS = {}
+
+
+def crlf(s="", *, as_bytes: bool = False):
+    val = s + "\r\n"
+
+    if as_bytes:
+        return val.encode()
+
+    return val
 
 
 class URL:
@@ -77,20 +85,11 @@ class URL:
         if self.scheme == "data":
             return self.content or "", self.view_source
 
-        s = socket.socket(
-            family=socket.AF_INET,
-            type=socket.SOCK_STREAM,
-            proto=socket.IPPROTO_TCP,
-        )
-        if self.scheme == "https":
-            ctx = ssl.create_default_context()
-            s = ctx.wrap_socket(s, server_hostname=self.host)
-
-        s.connect((self.host, self.port))
+        s = get_socket(self)
 
         request = crlf(f"GET {self.path} HTTP/1.1")
         request += crlf(f"Host: {self.host}")
-        request += crlf("Connection: close")
+        request += crlf("Connection: keep-alive")
         request += crlf(f"User-Agent: {UA}")
         request += crlf()
 
@@ -99,9 +98,9 @@ class URL:
         # TODO:
         #   - read Content-Type header to determine the encoding rather
         #     than hardcoding / assuming the encoding is utf8
-        response = s.makefile("r", encoding="utf8", newline=crlf())
+        response = s.makefile("rb", encoding="utf8", newline=crlf())
 
-        statusline = response.readline()
+        statusline = response.readline().decode()
 
         version, status, explanation = statusline.split(" ", 2)
 
@@ -110,20 +109,22 @@ class URL:
 
         response_headers = {}
         while True:
-            line = response.readline()
+            line = response.readline().decode()
             if line == crlf():
                 break
             header, value = line.split(":", 1)
             response_headers[header.casefold()] = value.strip()
 
+        assert "content-length" in response_headers
+
         assert "transfer-encoding" not in response_headers
         assert "content-encoding" not in response_headers
 
-        content = response.read()
+        len_bytes = int(response_headers["content-length"])
+
+        content = response.read(len_bytes).decode()
 
         self.content = content
-
-        s.close()
 
         return content, self.view_source
 
@@ -149,3 +150,28 @@ class URL:
 
         for name, value in defaults.items():
             setattr(self, name, value)
+
+
+def get_socket(url: URL):
+    cache_key = f"{url.scheme}:{url.host}:{url.port}"
+
+    cached = PERSISTED_SOCKETS.get(cache_key)
+
+    if cached:
+        return cached
+
+    s = socket.socket(
+        family=socket.AF_INET,
+        type=socket.SOCK_STREAM,
+        proto=socket.IPPROTO_TCP,
+    )
+
+    if url.scheme == "https":
+        ctx = ssl.create_default_context()
+        s = ctx.wrap_socket(s, server_hostname=url.host)
+
+    s.connect((url.host, url.port))
+
+    PERSISTED_SOCKETS[cache_key] = s
+
+    return s

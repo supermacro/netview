@@ -16,7 +16,7 @@ def load(url: URL):
 if __name__ == "__main__":
     print("> Beginning request")
 
-    DEFAULT_URL = "view-source:http://info.cern.ch/hypertext/WWW/TheProject.html"
+    DEFAULT_URL = "http://info.cern.ch/hypertext/WWW/TheProject.html"
 
     if len(sys.argv) < 2:
         print(f"No url provided, defaulting to {DEFAULT_URL}")
