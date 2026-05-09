@@ -1,12 +1,24 @@
+import logging
 import socket
 import ssl
+from dataclasses import dataclass
 from pathlib import Path
+from time import time
 from urllib.parse import unquote
+
+logger = logging.getLogger(__name__)
 
 UA = "NetView/0.1"
 
 
+@dataclass
+class CacheEntry:
+    content: str
+    expires_at: int | None
+
+
 PERSISTED_SOCKETS = {}
+CONTENT_CACHE = {}
 
 
 def crlf(s="", *, as_bytes: bool = False):
@@ -77,8 +89,10 @@ class URL:
         self.path = "/" + path
 
     def request(self, *, redirect_counter: int = 0) -> tuple[str, bool]:
-        if self.content:
-            return self.content, self.view_source
+        cached = get_cached_content(self)
+
+        if cached and (not cached.expires_at or cached.expires_at > time()):
+            return cached.content, self.view_source
 
         if self.scheme == "file":
             return self._read_file(), self.view_source
@@ -144,7 +158,37 @@ class URL:
 
         content = response.read(len_bytes).decode()
 
-        self.content = content
+        cache_control = response_headers.get("cache-control")
+
+        should_cache = True
+        cache_age = None
+        if cache_control:
+            directives = cache_control.split(", ")
+
+            if "no-store" in directives:
+                should_cache = False
+
+            unsupported_directives = set(directives) - {"no-store", "max-age"}
+
+            if unsupported_directives:
+                logger.warning(
+                    "Unsupported Cache-Control directives provided: %s",
+                    unsupported_directives,
+                )
+                should_cache = False
+
+            if "max-age" in directives:
+                max_age = next(d for d in directives)
+                _, max_age_value = max_age.split("=", 1)
+                max_age_value = int(max_age_value)
+
+                if max_age_value == 0:
+                    should_cache = False
+                else:
+                    cache_age = max_age_value
+
+        if should_cache:
+            cache_content(self, content, max_age=cache_age)
 
         return content, self.view_source
 
@@ -183,6 +227,20 @@ class URL:
 
         for name, value in defaults.items():
             setattr(self, name, value)
+
+
+def cache_content(url: URL, content: str, *, max_age: int | None = None):
+    cache_key = f"{url.scheme}:{url.host}:{url.port}:{url.path}"
+
+    CONTENT_CACHE[cache_key] = CacheEntry(
+        content=content,
+        expires_at=(int(time() + max_age) if max_age is not None else None),
+    )
+
+
+def get_cached_content(url: URL) -> CacheEntry | None:
+    cache_key = f"{url.scheme}:{url.host}:{url.port}:{url.path}"
+    return CONTENT_CACHE.get(cache_key)
 
 
 def get_socket(url: URL):

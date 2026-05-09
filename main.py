@@ -1,7 +1,7 @@
 import sys
 
 from netview.networking import URL
-from netview.rendering import show
+from netview.rendering import render
 
 
 def load(url: URL):
@@ -10,7 +10,7 @@ def load(url: URL):
     if view_source:
         print(body)
     else:
-        print(show(body))
+        print(render(body))
 
 
 if __name__ == "__main__":
