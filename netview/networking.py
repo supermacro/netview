@@ -11,7 +11,23 @@ def crlf(s=""):
 
 
 class URL:
+    scheme: str
+
+    host: str | None
+    port: int | None
+    path: str | None
+
+    content: str | None
+
+    view_source: bool = False
+
     def __init__(self, url: str):
+        self._set_defaults()
+
+        if url.startswith("view-source:"):
+            _, url = url.split(":", 1)
+            self.view_source = True
+
         if url.startswith("data:"):
             self.scheme, rest = url.split(":", 1)
 
@@ -52,14 +68,14 @@ class URL:
 
         self.path = "/" + path
 
-    def request(self):
+    def request(self) -> tuple[str, bool]:
         if self.content:
-            return self.content
+            return self.content, self.view_source
 
         if self.scheme == "file":
-            return self._read_file()
+            return self._read_file(), self.view_source
         if self.scheme == "data":
-            return self.content
+            return self.content or "", self.view_source
 
         s = socket.socket(
             family=socket.AF_INET,
@@ -109,7 +125,7 @@ class URL:
 
         s.close()
 
-        return content
+        return content, self.view_source
 
     def _read_file(self):
         if not self.path:
@@ -118,3 +134,18 @@ class URL:
         path = Path(unquote(self.path))
         content = path.read_text()
         return content
+
+    def _set_defaults(self):
+        defaults = {
+            name: value
+            for name, value in self.__class__.__dict__.items()
+            if (not name.startswith("__") and not callable(value))
+        }
+
+        attrs = [name for name in self.__annotations__ if name not in defaults]
+
+        for attr in attrs:
+            setattr(self, attr, None)
+
+        for name, value in defaults.items():
+            setattr(self, name, value)
