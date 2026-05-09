@@ -76,7 +76,7 @@ class URL:
 
         self.path = "/" + path
 
-    def request(self) -> tuple[str, bool]:
+    def request(self, *, redirect_counter: int = 0) -> tuple[str, bool]:
         if self.content:
             return self.content, self.view_source
 
@@ -104,8 +104,10 @@ class URL:
 
         version, status, explanation = statusline.split(" ", 2)
 
-        if int(status) != 200:
-            raise NotImplementedError("Handling non 200 codes is not yet implemented")
+        if status not in {"200", "301"}:
+            raise NotImplementedError(
+                f"Handling '{status}' code is not yet implemented"
+            )
 
         response_headers = {}
         while True:
@@ -114,6 +116,24 @@ class URL:
                 break
             header, value = line.split(":", 1)
             response_headers[header.casefold()] = value.strip()
+
+        if status == "301":
+            redirect_counter += 1
+
+            if redirect_counter == 10:
+                raise RuntimeError("too many redirects")
+
+            location = response_headers.get("location")
+
+            if not location:
+                raise ValueError("Location not provided for 301 redirect")
+
+            if location.startswith("/"):
+                return URL(self.origin + location).request(
+                    redirect_counter=redirect_counter
+                )
+
+            return URL(location).request(redirect_counter=redirect_counter)
 
         assert "content-length" in response_headers
 
@@ -128,6 +148,15 @@ class URL:
 
         return content, self.view_source
 
+    @property
+    def origin(self):
+        if self.scheme not in {"http", "https"}:
+            raise ValueError(".origin not implemented for networked URLs")
+
+        port = f":{self.port}" if self.port != 80 else ""
+
+        return f"{self.scheme}://{self.host}{port}"
+
     def _read_file(self):
         if not self.path:
             raise ValueError("no path provided")
@@ -140,7 +169,11 @@ class URL:
         defaults = {
             name: value
             for name, value in self.__class__.__dict__.items()
-            if (not name.startswith("__") and not callable(value))
+            if (
+                not name.startswith("__")
+                and not callable(value)
+                and not isinstance(value, property)
+            )
         }
 
         attrs = [name for name in self.__annotations__ if name not in defaults]
