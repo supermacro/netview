@@ -14,6 +14,13 @@ class URL:
     def __init__(self, url: str):
         if url.startswith("data:"):
             self.scheme, rest = url.split(":", 1)
+
+        if not self.scheme:
+            self.scheme, rest = url.split("://", 1)
+
+        assert self.scheme in ["http", "https", "file", "data"]
+
+        if self.scheme == "data":
             mimetype, content = rest.split(",")
 
             if mimetype != "text/html":
@@ -25,9 +32,6 @@ class URL:
             self.path = None
 
             return
-
-        self.scheme, rest = url.split("://", 1)
-        assert self.scheme in ["http", "https", "file", "data"]
 
         if self.scheme == "file":
             self.host = None
