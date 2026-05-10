@@ -1,27 +1,17 @@
 import sys
+import tkinter
 
 from netview.networking import URL
-from netview.rendering import render
-
-
-def load(url: URL):
-    body, view_source = url.request()
-
-    if view_source:
-        print(body)
-    else:
-        print(render(body))
-
+from netview.rendering import Browser
 
 if __name__ == "__main__":
-    print("> Beginning request")
+    import sys
 
-    DEFAULT_URL = "http://info.cern.ch/hypertext/WWW/TheProject.html"
+    url = sys.argv[1]
 
-    if len(sys.argv) < 2:
-        print(f"No url provided, defaulting to {DEFAULT_URL}")
-        url = DEFAULT_URL
-    else:
-        url = sys.argv[1]
+    if not url:
+        raise RuntimeError("Must supply url")
 
-    load(URL(url))
+    Browser().load(URL(url))
+
+    tkinter.mainloop()

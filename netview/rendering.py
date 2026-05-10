@@ -1,4 +1,8 @@
 import re
+import tkinter
+
+from netview.networking import URL
+from netview.performance import performance_budget
 
 NAMED_CHARACTER_REFERENCES_MAPPING = {
     "lt": "<",
@@ -59,11 +63,83 @@ def decode(body: str, cursor: int) -> tuple[str, int]:
     return char, cursor + 1
 
 
-if __name__ == "__main__":
-    html = "<body>hello, &lt;div&gt;</body>"
-    print(f"HTML: {html}")
+SCROLL_STEP = 100
+WIDTH, HEIGHT = 800, 600
+HSTEP, VSTEP = 13, 18
 
-    result = render(html)
-    assert result == "hello, <div>"
 
-    print(result)
+class Browser:
+    def __init__(self):
+        self.window = tkinter.Tk()
+        self.canvas = tkinter.Canvas(
+            self.window,
+            width=WIDTH,
+            height=HEIGHT,
+        )
+
+        self.canvas.pack()
+        self.scroll = 0
+
+        self.window.bind("<Down>", self.scrolldown)
+
+    @performance_budget(budget_ms=17)
+    def draw(self):
+        """
+        Works at the screen level
+        """
+
+        # ensure we clear current frame before
+        # we redraw again
+        self.canvas.delete("all")
+
+        for x, y, c in self.display_list:
+            if y > self.scroll + HEIGHT:
+                continue
+            if y + VSTEP < self.scroll:
+                continue
+
+            self.canvas.create_text(x, y - self.scroll, text=c)
+
+    def load(self, url: URL):
+        body, view_source = url.request()
+        text = lex(body)
+        self.display_list = layout(text)
+        self.draw()
+
+    def scrolldown(self, e: tkinter.Event):
+        self.scroll += SCROLL_STEP
+        self.draw()
+
+
+def lex(body: str) -> str:
+    in_tag = False
+
+    raw_content = ""
+
+    for c in body:
+        if c == "<":
+            in_tag = True
+        elif c == ">":
+            in_tag = False
+        elif not in_tag:
+            raw_content += c
+
+    return raw_content
+
+
+def layout(text) -> list[tuple[int, int, str]]:
+    """
+    Works at the page level. Concerns with laying out
+    content entirely, irrespective of screen position.
+    """
+    display_list = []
+    cursor_x, cursor_y = HSTEP, VSTEP
+    for c in text:
+        display_list.append((cursor_x, cursor_y, c))
+        cursor_x += HSTEP
+
+        if cursor_x >= WIDTH - HSTEP:
+            cursor_y += VSTEP
+            cursor_x = HSTEP
+
+    return display_list
