@@ -1,3 +1,4 @@
+import logging
 import sys
 import tkinter
 
@@ -6,6 +7,8 @@ from netview.rendering import Browser
 
 if __name__ == "__main__":
     import sys
+
+    logging.basicConfig(level=logging.INFO)
 
     url = sys.argv[1]
 

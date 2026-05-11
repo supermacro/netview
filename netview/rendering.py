@@ -1,8 +1,19 @@
+import logging
 import re
 import tkinter
+from enum import StrEnum
 
 from netview.networking import URL
 from netview.performance import performance_budget
+
+logger = logging.getLogger(__name__)
+
+
+class ScrollType(StrEnum):
+    ARROW_UP = "arrow_up"
+    ARROW_DOWN = "arrow_down"
+    MOUSEWHEEL = "mousewheel"
+
 
 NAMED_CHARACTER_REFERENCES_MAPPING = {
     "lt": "<",
@@ -12,32 +23,6 @@ NAMED_CHARACTER_REFERENCES_MAPPING = {
     "copy": "©",
     "ndash": "–",
 }
-
-
-def render(body: str) -> str:
-    cursor = 0
-    content = ""
-    in_tag = False
-
-    while cursor < len(body):
-        char = body[cursor]
-
-        if char == "<":
-            in_tag = True
-            cursor += 1
-        elif char == ">":
-            in_tag = False
-            cursor += 1
-        elif in_tag:
-            # do nothing with metadata
-            # drop html tag metadata for now
-            cursor += 1
-        elif not in_tag:
-            decoded_content, next_cursor = decode(body, cursor)
-            content += decoded_content
-            cursor = next_cursor
-
-    return content
 
 
 def decode(body: str, cursor: int) -> tuple[str, int]:
@@ -80,7 +65,13 @@ class Browser:
         self.canvas.pack()
         self.scroll = 0
 
-        self.window.bind("<Down>", self.scrolldown)
+        self.window.bind("<Up>", lambda e: self.handle_scroll(e, ScrollType.ARROW_UP))
+        self.window.bind(
+            "<Down>", lambda e: self.handle_scroll(e, ScrollType.ARROW_DOWN)
+        )
+        self.window.bind(
+            "<MouseWheel>", lambda e: self.handle_scroll(e, ScrollType.MOUSEWHEEL)
+        )
 
     @performance_budget(budget_ms=17)
     def draw(self):
@@ -101,30 +92,60 @@ class Browser:
             self.canvas.create_text(x, y - self.scroll, text=c)
 
     def load(self, url: URL):
-        body, view_source = url.request()
-        text = lex(body)
+        html_content, view_source = url.request()
+        text = lex(html_content)
         self.display_list = layout(text)
         self.draw()
 
-    def scrolldown(self, e: tkinter.Event):
-        self.scroll += SCROLL_STEP
+    def handle_scroll(self, e: tkinter.Event, scroll_type: ScrollType):
+        cursor_x, last_y, c = self.display_list[-1]
+
+        prev_scroll = self.scroll
+
+        if scroll_type == ScrollType.ARROW_DOWN or (
+            scroll_type == ScrollType.MOUSEWHEEL and e.delta < 0
+        ):
+            if self.scroll < last_y:
+                self.scroll += SCROLL_STEP
+        elif scroll_type == ScrollType.ARROW_UP or (
+            scroll_type == ScrollType.MOUSEWHEEL and e.delta > 0
+        ):
+            if self.scroll > SCROLL_STEP:
+                self.scroll -= SCROLL_STEP
+        else:
+            raise ValueError(f"unrecognized scroll type: {scroll_type}")
+
+        # avoid unnecessary redraw
+        if prev_scroll == self.scroll:
+            return
+
         self.draw()
 
 
 def lex(body: str) -> str:
+    cursor = 0
+    content = ""
     in_tag = False
 
-    raw_content = ""
+    while cursor < len(body):
+        char = body[cursor]
 
-    for c in body:
-        if c == "<":
+        if char == "<":
             in_tag = True
-        elif c == ">":
+            cursor += 1
+        elif char == ">":
             in_tag = False
+            cursor += 1
+        elif in_tag:
+            # do nothing with metadata
+            # drop html tag metadata for now
+            cursor += 1
         elif not in_tag:
-            raw_content += c
+            decoded_content, next_cursor = decode(body, cursor)
+            content += decoded_content
+            cursor = next_cursor
 
-    return raw_content
+    return content
 
 
 def layout(text) -> list[tuple[int, int, str]]:
@@ -135,6 +156,11 @@ def layout(text) -> list[tuple[int, int, str]]:
     display_list = []
     cursor_x, cursor_y = HSTEP, VSTEP
     for c in text:
+        if c == "\n":
+            cursor_y += VSTEP * 1.2
+            cursor_x = HSTEP
+            continue
+
         display_list.append((cursor_x, cursor_y, c))
         cursor_x += HSTEP
 
