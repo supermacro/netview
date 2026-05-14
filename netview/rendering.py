@@ -94,7 +94,7 @@ class Browser:
     def load(self, url: URL):
         html_content, view_source = url.request()
         text = lex(html_content)
-        self.display_list = layout(text)
+        self.display_list = layout(text, self.window.width)
         self.draw()
 
     def handle_scroll(self, e: tkinter.Event, scroll_type: ScrollType):
@@ -148,7 +148,7 @@ def lex(body: str) -> str:
     return content
 
 
-def layout(text) -> list[tuple[int, int, str]]:
+def layout(text, canvas_width: int) -> list[tuple[int, int, str]]:
     """
     Works at the page level. Concerns with laying out
     content entirely, irrespective of screen position.
@@ -164,7 +164,7 @@ def layout(text) -> list[tuple[int, int, str]]:
         display_list.append((cursor_x, cursor_y, c))
         cursor_x += HSTEP
 
-        if cursor_x >= WIDTH - HSTEP:
+        if cursor_x >= canvas_width - HSTEP:
             cursor_y += VSTEP
             cursor_x = HSTEP
 
